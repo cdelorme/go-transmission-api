@@ -2,20 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/cdelorme/go-config"
-	"github.com/cdelorme/go-log"
 	"github.com/cdelorme/go-maps"
 )
 
 const (
-	GetSession     = "{\"method\":\"session-get\"}"
-	GetTorrents    = "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\",\"downloadDir\",\"files\"]}}"
-	RemoveTorrents = ""
+	sessionGet    = "{\"method\":\"session-get\"}"
+	torrentGet    = "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\",\"downloadDir\",\"files\"]}}"
+	torrentRemove = "{\"method\":\"torrent-remove\",\"arguments\":{\"ids\":[%s]}}"
 )
 
 type settings struct {
@@ -44,9 +45,6 @@ type response struct {
 }
 
 func main() {
-	logger := &log.Logger{}
-	logger.Color()
-
 	path := ""
 	if len(os.Args) > 1 {
 		path = os.Args[1]
@@ -55,7 +53,6 @@ func main() {
 	conf := &settings{}
 	l, err := config.Load("/etc/transmission-daemon/settings.json")
 	if err != nil {
-		logger.Error("Failed to load config: %s", err)
 		return
 	}
 	maps.To(conf, l)
@@ -66,24 +63,41 @@ func main() {
 	remove(url, finished, token, path)
 }
 
-func remove(route string, torrents *[]torrent, session string, path string) {
+func remove(route string, torrents []torrent, session string, path string) {
+	list := make([]string, 0)
+	for _, t := range torrents {
+		list = append(list, strconv.Itoa(t.Id))
+	}
 
-	// create removal list
-
-	// remove torrents
-
-	// if not successful, exit before causing damage
+	c := http.Client{}
+	req, _ := http.NewRequest("POST", route, strings.NewReader(fmt.Sprintf(torrentRemove, strings.Join(list, ","))))
+	req.Header.Add("X-Transmission-Session-Id", session)
+	resp, err := c.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return
+	}
 
 	if path != "" {
-		// move files to path
+		for _, t := range torrents {
+			for _, f := range t.Files {
+				if err := os.Mkdir(filepath.Dir(filepath.Join(path, f.Name)), 0777); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to mkdir: %s\n", err)
+					continue
+				}
+				err := os.Rename(filepath.Join(t.Path, f.Name), filepath.Join(path, f.Name))
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to move file %s, %s\n", f.Name, err)
+				}
+			}
+		}
 	}
 }
 
-func done(route string, session string) *[]torrent {
+func done(route string, session string) []torrent {
 	torrents := make([]torrent, 0)
 
 	c := http.Client{}
-	req, _ := http.NewRequest("POST", route, strings.NewReader(GetTorrents))
+	req, _ := http.NewRequest("POST", route, strings.NewReader(torrentGet))
 	req.Header.Add("X-Transmission-Session-Id", session)
 	resp, _ := c.Do(req)
 
@@ -97,11 +111,11 @@ func done(route string, session string) *[]torrent {
 		}
 	}
 
-	return &torrents
+	return torrents
 }
 
 func session(route string) string {
-	resp, _ := http.Post(route, "json", strings.NewReader(GetSession))
+	resp, _ := http.Post(route, "json", strings.NewReader(sessionGet))
 	return resp.Header.Get("X-Transmission-Session-Id")
 }
 
