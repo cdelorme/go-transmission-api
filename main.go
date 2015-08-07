@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -63,6 +64,41 @@ func main() {
 	remove(url, finished, token, path)
 }
 
+func exists(path string, num int) string {
+	if num > 0 {
+		path = strconv.Itoa(num) + "copy." + path
+	}
+	_, err := os.Stat(path)
+	if err != nil {
+		return path
+	}
+	return exists(path, num+1)
+}
+
+func copy(to, from string) error {
+	if err := os.MkdirAll(filepath.Dir(to), 0777); err != nil {
+		return err
+	}
+
+	fi, e := os.Open(from)
+	if e != nil {
+		return e
+	}
+
+	o := exists(to, 0)
+
+	fo, e := os.Create(o)
+	if e != nil {
+		return e
+	}
+
+	if _, err := io.Copy(fo, fi); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func remove(route string, torrents []torrent, session string, path string) {
 	list := make([]string, 0)
 	for _, t := range torrents {
@@ -80,13 +116,8 @@ func remove(route string, torrents []torrent, session string, path string) {
 	if path != "" {
 		for _, t := range torrents {
 			for _, f := range t.Files {
-				if err := os.MkdirAll(filepath.Dir(filepath.Join(path, f.Name)), 0777); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to mkdir: %s\n", err)
-					continue
-				}
-				err := os.Rename(filepath.Join(t.Path, f.Name), filepath.Join(path, f.Name))
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to move file %s, %s\n", f.Name, err)
+				if err := copy(filepath.Join(path, f.Name), filepath.Join(t.Path, f.Name)); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to copy file: %s\n", filepath.Join(t.Path, f.Name))
 				}
 			}
 		}
