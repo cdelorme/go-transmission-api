@@ -64,9 +64,13 @@ func main() {
 	remove(url, finished, token, path)
 }
 
+// @note: an equally valid option would be to sha256 checksum conflicts
+// returning no error to delete the original if they match, but I have
+// another project to find duplicates so I'm not as worried
 func exists(path string, num int) string {
 	if num > 0 {
-		path = strconv.Itoa(num) + "copy." + path
+		ext := filepath.Ext(path)
+		path = path[0:len(path)-len(ext)] + "(copy " + strconv.Itoa(num) + ")" + ext
 	}
 	_, err := os.Stat(path)
 	if err != nil {
@@ -118,6 +122,10 @@ func remove(route string, torrents []torrent, session string, path string) {
 			for _, f := range t.Files {
 				if err := copy(filepath.Join(path, f.Name), filepath.Join(t.Path, f.Name)); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to copy file: %s\n", filepath.Join(t.Path, f.Name))
+					continue
+				}
+				if err := os.Remove(filepath.Join(t.Path, f.Name)); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to remove original: %s\n", filepath.Join(t.Path, f.Name))
 				}
 			}
 		}
