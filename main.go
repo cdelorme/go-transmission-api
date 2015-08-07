@@ -80,7 +80,7 @@ func remove(route string, torrents []torrent, session string, path string) {
 	if path != "" {
 		for _, t := range torrents {
 			for _, f := range t.Files {
-				if err := os.Mkdir(filepath.Dir(filepath.Join(path, f.Name)), 0777); err != nil {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(path, f.Name)), 0777); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to mkdir: %s\n", err)
 					continue
 				}
