@@ -61,7 +61,7 @@ func main() {
 	url := rpc(conf)
 	token := session(url)
 	finished := done(url, token)
-	remove(url, finished, token, path)
+	remove(url, token, path, finished)
 }
 
 // @note: an equally valid option would be to sha256 checksum conflicts
@@ -103,7 +103,7 @@ func copy(to, from string) error {
 	return nil
 }
 
-func remove(route string, torrents []torrent, session string, path string) {
+func remove(route, session, path string, torrents []torrent) {
 	list := make([]string, 0)
 	for _, t := range torrents {
 		list = append(list, strconv.Itoa(t.Id))
@@ -132,7 +132,7 @@ func remove(route string, torrents []torrent, session string, path string) {
 	}
 }
 
-func done(route string, session string) []torrent {
+func done(route, session string) []torrent {
 	torrents := make([]torrent, 0)
 
 	c := http.Client{}
