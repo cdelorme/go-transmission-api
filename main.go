@@ -64,9 +64,6 @@ func main() {
 	remove(url, token, path, finished)
 }
 
-// @note: an equally valid option would be to sha256 checksum conflicts
-// returning no error to delete the original if they match, but I have
-// another project to find duplicates so I'm not as worried
 func exists(path string, num int) string {
 	if num > 0 {
 		ext := filepath.Ext(path)
@@ -79,6 +76,7 @@ func exists(path string, num int) string {
 	return exists(path, num+1)
 }
 
+// @note: os.Rename does not work across drives, even if it did it would no-longer be atomic
 func copy(to, from string) error {
 	if err := os.MkdirAll(filepath.Dir(to), 0777); err != nil {
 		return err
