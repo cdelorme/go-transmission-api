@@ -19,6 +19,11 @@ For me this is helpful in two ways.  For one my main storage disk is not the sam
 _This is a feature I expected to exist within the client, much like utorrent used to have._
 
 
+## notes
+
+This software is best paired with [deduplication software](https://github.com/cdelorme/level6), since it will only append a suffix to files when a file already exists, it will not check and compare to prevent duplicate downloads.
+
+
 ## future
 
 While I can think of at half a dozen more features I'd like to see, I'd rather write my own client to handle them if I was going to go that far.
