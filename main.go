@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cdelorme/go-config"
 	"github.com/cdelorme/go-maps"
@@ -35,6 +36,24 @@ type torrent struct {
 	Files    []file `json:"files"`
 	Path     string `json:"downloadDir"`
 	Finished bool   `json:"isFinished"`
+}
+
+func (self *torrent) Move(path string) error {
+	containers := make(map[string]struct{}, 0)
+	for _, f := range self.Files {
+		if e := copy(filepath.Join(path, f.Name), filepath.Join(self.Path, f.Name)); e != nil {
+			return e
+		}
+		containers[strings.Split(f.Name, string(os.PathSeparator))[0]] = struct{}{}
+	}
+
+	for k, _ := range containers {
+		if e := os.RemoveAll(k); e != nil && !os.IsNotExist(e) {
+			return e
+		}
+	}
+
+	return nil
 }
 
 type internal struct {
@@ -65,7 +84,7 @@ func main() {
 	remove(url, token, path, finished)
 }
 
-func exists(path string, num int) string {
+func tsugi(path string, num int) string {
 	if num > 0 {
 		ext := filepath.Ext(path)
 		path = path[0:len(path)-len(ext)] + "(copy " + strconv.Itoa(num) + ")" + ext
@@ -74,7 +93,7 @@ func exists(path string, num int) string {
 	if err != nil {
 		return path
 	}
-	return exists(path, num+1)
+	return tsugi(path, num+1)
 }
 
 // @note: os.Rename does not work across drives, even if it did it would no-longer be atomic
@@ -88,7 +107,7 @@ func copy(to, from string) error {
 		return e
 	}
 
-	o := exists(to, 0)
+	o := tsugi(to, 0)
 
 	fo, e := os.Create(o)
 	if e != nil {
@@ -117,15 +136,22 @@ func remove(route, session, path string, torrents []torrent) {
 	}
 
 	if path != "" {
-		for _, t := range torrents {
-			for _, f := range t.Files {
-				if err := copy(filepath.Join(path, f.Name), filepath.Join(t.Path, f.Name)); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to copy file: %s\n", filepath.Join(t.Path, f.Name))
-					continue
+		for r := 0; r < 3; r++ {
+			if len(torrents) == 0 {
+				break
+			} else {
+				time.Sleep(time.Second * 15)
+			}
+			for i, t := range torrents {
+				if t.Move(path) == nil {
+					torrents = append(torrents[:i], torrents[i+1:]...)
 				}
-				if err := os.Remove(filepath.Join(t.Path, f.Name)); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to remove original: %s\n", filepath.Join(t.Path, f.Name))
-				}
+			}
+		}
+		if len(torrents) > 0 {
+			fmt.Fprintln(os.Stderr, "Failed to relocate files for these torrents:")
+			for _, t := range torrents {
+				fmt.Fprintln(os.Stderr, t.Name)
 			}
 		}
 	}
