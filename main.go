@@ -16,7 +16,7 @@ import (
 
 const (
 	sessionGet    = "{\"method\":\"session-get\"}"
-	torrentGet    = "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\",\"downloadDir\",\"files\"]}}"
+	torrentGet    = "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"name\",\"isFinished\",\"downloadDir\",\"files\"]}}"
 	torrentRemove = "{\"method\":\"torrent-remove\",\"arguments\":{\"ids\":[%s]}}"
 )
 
@@ -31,7 +31,8 @@ type file struct {
 
 type torrent struct {
 	Id       int    `json:"id"`
-	Files    []file `json:""files""`
+	Name     string `json:"name"`
+	Files    []file `json:"files"`
 	Path     string `json:"downloadDir"`
 	Finished bool   `json:"isFinished"`
 }
