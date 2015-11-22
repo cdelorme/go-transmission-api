@@ -1,37 +1,87 @@
 
 # tasks
 
-This will help keep a history of research and tentative activity on the project.
+This is a plan tracking document for a history of changes.  Summary:
 
-I attempted a quick fix, and introduced a bug with out-of-array-bounds.
-
-Realizing the difficulty surrounding this project, specifically it's dependency on transmission's RPC and config file, I figured it might make more sense to create tests that emulate the behavior of those resources so I can easily validate behavior of my own code and expedite creating a solid bugfix.
-
-I also began to see a large number of "copies", and have decided to adjust how I deal with duplicates.
-
-
-## goals
-
-- define execution behavior to be placed into the readme later
-- introduce tests to emulate the http RPC server responses and validating code behavior
-- update how to deal with duplicate downloads
-- future fuctionality, specifically load-torrents & level6 integration
+- changelog
+- current status
+- curl commands against RPC to test behavior
+- testing
+- pending readme updates
 
 
+# changelog
 
-## capturing curl commands
+Many changes were not committed as it's a work-in-progress, but because this is alpha software commits are going strait to master until we have reached a suitable level of stability.
 
-For testing, we need to verify the behavior of transmission during successful and unsuccessful command attempts.  Also, verified that when using `omitempty` on a composite struct, it still prints an empty object instead of omitting.  This means if we want to dynamically create commands, we either need to resort to a map[string]interface{} or verify that an empty "args" property won't cause trouble with the RPC endpoint.
+We had two major bugs in previous iterations:
 
-The RPC endpoint I tested against had a path of `http://10.0.0.2:9091/bt/rpc`
+- out-of-array-bounds issue with the latest code meant to address:
+- failure to cleanup folders after moving files
 
-Let's start with acquiring a session:
+_With the operation failing to execute well, or failing to execute, I needed to fix it, and testing against transmission is difficult when I have to deal with live data, so testing seemed like the best option to move forward quickly with._
+
+Since the last code commit there are many major changes.
+
+- added significantly more clarity to cli operations and main() structure
+- data types are more explicit but also succinct
+- file structure is broken down for cleaner abstraction
+- switched from private `transmission` to public `Transmission`
+- separated move from remove and added a third operation to load torrents
+- I added a mutex for concurrent safety of Token acquisition
+
+Future iterations will very likely follow the same library structure, where `cmd/` houses the cli client.  This is more reusable and testable; separating the parts that require integration from the parts that do not.
+
+Another major change is deciding which parts of transmission to leverage.
+
+For example, the load-torrents command ignores the watch directory and setting, instead it directly loads files from a folder and copies them to a transmission-relative directory.
+
+That decision was made because transmission lacks a suitable means of keeping a history of torrents, and often when disk issues occur corrupt files exist and the process of re-locating the same torrent files is a pain.  Further while it won't load two of the same torrent files actively, it does nothing to keep a history of old torrent files from previously completed and removed items.
+
+This becomes more of a problem when downloading compressed files, where after extracting it increases the likelyhood of never realizing duplicates.
+
+At the same time, we're going from a process that copies files directly, to leveraging the `torrent-set-location` feature, which benefits us in two ways.  First it reduces what our code is responsible for (formerly the data), and at the same time prevents time-gaps between torrent removal and file relocation which may formerly have caused copy or delete errors.
+
+
+# status
+
+Currently my focus is on:
+
+- test sending raw base64 encoded metadata to `torrent-add`
+- switching to `cmd/` for the client and going full-library system
+- adding a `Load()` or `Configure()` command to transmission and directly loading the config file
+	- this would eliminate conflicting concerns with my `go-config` libraries XDG pathing
+- alternative interpretation of `load` operation as a string, which may allow alternative to ~/Downloads
+	- useful override, especially for testing
+- adding tests to identify any design errors and bugs in transmission library
+	- ideally using an httptest server to mock behaviors, both success & fail cases
+
+There is currently no safety around concurrent execution of commands that interact with the file system.  For example, we cannot lock the list
+
+Additionally, there is concerns regarding three forms of duplication:
+
+- torrent names
+- torrent file names
+- torrent sha256 hash
+
+None of these alone resolve the problem we face.  Two differently named torrents may have the same sha256 hash. Similarly two same-named torrents may have a different sha256 hash.
+
+While the most ideal solution would be to parse duplicates by file names in the torrent, I do not believe that sort of information can be acquired from the raw .torrent files.
+
+I need to do some investigating, because that will fundamentally change how I deal with loading torrent files going forward.
+
+
+## curl commands
+
+My endpoint looks like this: `http://10.0.0.2:9091/bt/rpc`
+
+If I curl it with verbose mode, I get an html response with the code, but verbose shows the `X-Transmission-Session-Id` header is set:
 
 	curl -v http://10.0.0.2:9091/bt/rpc
 
-_This will print an error containing the session id, but if you notice verbose mode also prints the session id in the response header ``._  Thus, any request you send will give you the information you need top make a correction programmatically.  _If in the future the transmission interface I write needs to expand into a library, I should probably add a mutex for concurrency support on its properties, like the token._  We'll set the header for all subsequent requests...
+_It appears that every command can returna 409 with that header, and that means we can simply extract it as a response._
 
-Let's start with getting a list of torrents and properties we care about:
+Historically I was running commands to get a list with lost of details, like this:
 
 	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: q0F7blNnGVovAmXd6Q6zI5aQRTr4MEN7FvaXUFrJZaTG18gv" -d "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"name\",\"isFinished\",\"downloadDir\",\"files\"]}}" http://10.0.0.2:9091/bt/rpc
 
@@ -55,27 +105,45 @@ Example response data:
 				"name":"movie.mkv"
 			},
 
-[This might solve all of my problems](https://trac.transmissionbt.com/browser/trunk/extras/rpc-spec.txt#L408).  Previously I was removing the torrent to unlink it, then copying the data.  However, it looks like this functionality exists within transmission **and** can remain linked.  Therefore, we could perform the move leveraging transmission's RPC interface, reducing the code I have to write; assuming it ia synchronous we can then disconnect all id's afterwards.
+I grab the `downloadDir` to ensure I had the right parent path, since torrent download paths can be changed (I had never done it before so it seems like an odd feature, but not unreasonable).  I need the state of `isFinished` to determine that not only is it seeding, but the seeding hit our ratio goal.  I was grabbing the name for error reporting via logs.  The id's are needed for all other commands, such as removing them pre-move.  Finally, the entire list of files is necessary because I cannot simply execute a recursive copy from go.
 
-	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: q0F7blNnGVovAmXd6Q6zI5aQRTr4MEN7FvaXUFrJZaTG18gv" -d "{\"method\":\"torrent-set-location\",\"arguments\":{\"ids\":[1],\"location\":\"/media/toshokan/transmission\",\"move\":true}}" http://10.0.0.2:9091/bt/rpc
+During my review session on the rpc specification I ran across [this alternative solution](https://trac.transmissionbt.com/browser/trunk/extras/rpc-spec.txt#L408), which after a short test proved to work exellently.  It offloads moving the data to transmission's responsibility, reducing code and risk on our end.  Further, it prevents clashes with moving data pre-deletion, by keeping the association with transmission.  We can even choose to leave them attached if we want to.
 
-**Success!**  We can totally leverage that over the alternative.  This is great news!  The first attempt failed, because I didn't realize that transmission needed write permissions.  Once added, a slight delay in the second attempt strongly hinted that the move is synchronous.  Either way, not having to do the copy ourselves, and the added benefit of sustaining the connection is great news.  It also means some significant changes in my design plans.  _Although, transmission doesn't have any documentation around how duplicate files are handled._
+There are noticeable delay in the return from this command, which hinted to me that it is synchronous, making it safe to run and continue:
 
-We can also reduce the request to this:
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: q0F7blNnGVovAmXd6Q6zI5aQRTr4MEN7FvaXUFrJZaTG18gv" -d "{\"method\":\"torrent-set-location\",\"arguments\":{\"ids\":[1],\"location\":\"/new/path\",\"move\":true}}" http://10.0.0.2:9091/bt/rpc
+
+_Confirmation would be nice, but the documentation does not, so I may have to run a sizable number of more detailed tests._
+
+The other huge benefit is it reduces the operation and response to this:
 
 	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: 286CvsiBzHndot04TB0o62H34hfoSpxU523L8Kes1sfJFNfa" -d "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\"]}}" http://10.0.0.2:9091/bt/rpc
 
-Which yields a much more succinct:
-
 	{"arguments":{"torrents":[{"id":2,"isFinished":false},{"id":3,"isFinished":false},{"id":4,"isFinished":false},{"id":9,"isFinished":false},{"id":12,"isFinished":false},{"id":13,"isFinished":false},{"id":14,"isFinished":false},{"id":15,"isFinished":false},{"id":17,"isFinished":false},{"id":19,"isFinished":false},{"id":21,"isFinished":false},{"id":22,"isFinished":true},{"id":23,"isFinished":false},{"id":25,"isFinished":false},{"id":27,"isFinished":false},{"id":28,"isFinished":false},{"id":29,"isFinished":false},{"id":33,"isFinished":false},{"id":34,"isFinished":false},{"id":35,"isFinished":false},{"id":37,"isFinished":false},{"id":39,"isFinished":true},{"id":41,"isFinished":false},{"id":42,"isFinished":false},{"id":43,"isFinished":false},{"id":44,"isFinished":false},{"id":45,"isFinished":false},{"id":46,"isFinished":false},{"id":47,"isFinished":false},{"id":48,"isFinished":false},{"id":49,"isFinished":false},{"id":50,"isFinished":false},{"id":51,"isFinished":false},{"id":52,"isFinished":false},{"id":53,"isFinished":false},{"id":54,"isFinished":false},{"id":55,"isFinished":false},{"id":56,"isFinished":false},{"id":57,"isFinished":false},{"id":58,"isFinished":false},{"id":59,"isFinished":false}]},"result":"success"}
 
-_This doesn't let us be as explicit with our logging, but since we're now leveraging transmission, it's logs are probably a more viable source._
+_Since transmission is now responsible, we don't need names for logging, just the id and state._
 
-We still need to verify what `torrent-add` looks like both with and without "valid" metadata.
+I also was able to verify that I can force start all torrents with this command:
+
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: 286CvsiBzHndot04TB0o62H34hfoSpxU523L8Kes1sfJFNfa" -d "{\"method\":\"torrent-start-now\",\"arguments\":{}}" http://10.0.0.2:9091/bt/rpc
+
+_As part of this test I purposefully included an empty arguments object, since that is what go translates my entity to, which confirms that I don't have to worry about empty arguments causing disruption (yet)._
+
+
+**The last thing that needs testing is the process of base64 encoding and supplying metadata via `torrent-add`.**
+
+
+## testing
+
+Once the library has been separated from the core code, we can directly manipulate the behavior of our code and run tests against an httptest server instance.
+
+This will let us verify all possible behaviors, and correct any mistakes or bugs in the process, without having to touch a live running transmission instance.
+
+_The same cannot be said for the client code,_ but integration needs to happen sometime, so we can verify actually loading torrents, and reading contents from the file system.  _Although how the load operation will work in the future is subject to a significant overhaul._
 
 
 
-### execution behavior
+## readme
 
 Three important areas:
 
@@ -93,92 +161,3 @@ The executor must:
 
 Currently my script copies the files one at a time recursively, creating matching folders as needed.  While `os.Rename` is a great atomic (one-uninterrupted-step) alternative, it only works when moving a file across the same disk, and fails to be atomic when going from one disk to another.  _This ruins most scenarios where one may want to move files._
 
-
-### testing
-
-To reduce the error-prone behavior of my code I want to add tests that emulate the resources my code acts upon to help me verify correct (or known) behavior.
-
-To achieve this I need to:
-
-- revisit the RPC interface and determine curl commands to test responses
-- add those commands to my `todo.md` file for historical tracking
-- create a test file to validate behavior
-- create an httptest server that emulates the RPC
-
-Ideally the tests will not need to manipulate real data, and we can still verify behavior.  Ideally abstracting the method that copies records so we can replace it at runtime during tests.
-
-_It may also be time to break the code into multiple files for modularity._
-
-This should allow me to address not only the current "out-of-bounds" array bug, but also any future bugs that may come along.
-
-
-### duplicates
-
-I need a long-term plan to deal with duplicates that probably won't be part of this update.
-
-I actually want to take a total of four steps:
-
-- add load-torrents logic to this command
-- make load-torrents smart, able to track already-loaded files
-- integrate level6 for file comparison
-- update logic to delete when duplicate, or copy at parent directory
-
-_Because many of the files I download are compressed, once decompressed the last two steps fail to deal with duplicates adequately._
-
-
-### load torrents
-
-This is a feature I wish transmission had, which is a historical record of all downloaded items.
-
-When attempting to load torrents automatically, such as a "watch" list, there is no user interaction, and therefore it should have a default behavior such as "ignore and delete".
-
-This would also mean that when a torrent finishes the torrent file should not be deleted.
-
-In fact it shouldn't be suffixed but moved from the watched folder as well.
-
-**To address these short-comings, I need to make an intelligent loader.**
-
-It will:
-
-- create a folder to copy every torrent file I've ever downloaded into
-- compare new `.torrent` files against that folder, deleting files that are "named" duplicates
-- the rest will be copied both into that folder, as well as to the transmission watch folder
-
-This behavior yields all the benefits I desire.  A complete copy of every torrent file means I have a way to recover files that get corrupted without re-locating the torrent on the internet (sometimes a hassle) and I prevent duplicates at the source (me).
-
-
-### level6
-
-I still have to update my `level6` project before this becomes a possibility, but in the event that a duplicate file is downloaded, I want the behavior of my software to leverage level6 and compare.
-
-This, _much smarter_, approach will allow me to delete duplicates instead of copying them.
-
-
-# status
-
-Base setup is complete with flags to control operations as needed.  At this point we just need to cleanup and reimplemented transmission features.
-
-_We also still need to verify what happens when I send a command with an empty args object._
-
-New transmission method layout:
-
-- get() []torrent
-- finished() []torrent
-- ids(t ...torrent) []int
-- move(ids ...int) error
-- delete(ids ...int) error
-- load(meta []byte) error
-
-We need structs to represent the various datatypes, and should use inline anonymous struct definitions for deep-content instead of arbitrarily named structs.
-
-This new command layout takes advantage of transmissions own tooling better to yield the desired results.
-
-_We might even consider making an optional delete flag, to run separate from move, or conditionally after move is successful._
-
-**The only major change in usage is the ownership of the folder files are being moved to must be accessible by transmission.**
-
-Also, I've confirmed that I will be attempting to ignore the `watch` folder and setting, because if we can directly load metadata we can safely ignore those features.
-
-_It might also be really cool if I can make `torrent-add` executable, such that mimetype association would automatically load a torrent when "open" is executed, but that's a far-future feature._
-
-If the transmission functionality grows substantially, I may consider moving to a `cmd/` folder-structure, with one or more clients.

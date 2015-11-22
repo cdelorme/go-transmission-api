@@ -29,3 +29,8 @@ This software is best paired with [deduplication software](https://github.com/cd
 While I can think of at half a dozen more features I'd like to see, I'd rather write my own client to handle them if I was going to go that far.
 
 So this library will likely only ever provide one function.
+
+
+# references
+
+- [rpc-spec document](https://trac.transmissionbt.com/browser/trunk/extras/rpc-spec.txt)
