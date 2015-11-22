@@ -18,6 +18,63 @@ I also began to see a large number of "copies", and have decided to adjust how I
 - future fuctionality, specifically load-torrents & level6 integration
 
 
+
+## capturing curl commands
+
+For testing, we need to verify the behavior of transmission during successful and unsuccessful command attempts.  Also, verified that when using `omitempty` on a composite struct, it still prints an empty object instead of omitting.  This means if we want to dynamically create commands, we either need to resort to a map[string]interface{} or verify that an empty "args" property won't cause trouble with the RPC endpoint.
+
+The RPC endpoint I tested against had a path of `http://10.0.0.2:9091/bt/rpc`
+
+Let's start with acquiring a session:
+
+	curl -v http://10.0.0.2:9091/bt/rpc
+
+_This will print an error containing the session id, but if you notice verbose mode also prints the session id in the response header ``._  Thus, any request you send will give you the information you need top make a correction programmatically.  _If in the future the transmission interface I write needs to expand into a library, I should probably add a mutex for concurrency support on its properties, like the token._  We'll set the header for all subsequent requests...
+
+Let's start with getting a list of torrents and properties we care about:
+
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: q0F7blNnGVovAmXd6Q6zI5aQRTr4MEN7FvaXUFrJZaTG18gv" -d "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"name\",\"isFinished\",\"downloadDir\",\"files\"]}}" http://10.0.0.2:9091/bt/rpc
+
+Example response data:
+
+	{
+		"result":"success",
+		"arguments":{
+			"torrents":[
+				{
+				"downloadDir":"/media/transmission/downloads",
+				"files":[
+					{
+						"bytesCompleted":487753063,
+						"length":487753063,
+						"name":"movie.mkv"
+					}
+				],
+				"id":1,
+				"isFinished":false,
+				"name":"movie.mkv"
+			},
+
+[This might solve all of my problems](https://trac.transmissionbt.com/browser/trunk/extras/rpc-spec.txt#L408).  Previously I was removing the torrent to unlink it, then copying the data.  However, it looks like this functionality exists within transmission **and** can remain linked.  Therefore, we could perform the move leveraging transmission's RPC interface, reducing the code I have to write; assuming it ia synchronous we can then disconnect all id's afterwards.
+
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: q0F7blNnGVovAmXd6Q6zI5aQRTr4MEN7FvaXUFrJZaTG18gv" -d "{\"method\":\"torrent-set-location\",\"arguments\":{\"ids\":[1],\"location\":\"/media/toshokan/transmission\",\"move\":true}}" http://10.0.0.2:9091/bt/rpc
+
+**Success!**  We can totally leverage that over the alternative.  This is great news!  The first attempt failed, because I didn't realize that transmission needed write permissions.  Once added, a slight delay in the second attempt strongly hinted that the move is synchronous.  Either way, not having to do the copy ourselves, and the added benefit of sustaining the connection is great news.  It also means some significant changes in my design plans.  _Although, transmission doesn't have any documentation around how duplicate files are handled._
+
+We can also reduce the request to this:
+
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: 286CvsiBzHndot04TB0o62H34hfoSpxU523L8Kes1sfJFNfa" -d "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\"]}}" http://10.0.0.2:9091/bt/rpc
+
+Which yields a much more succinct:
+
+	{"arguments":{"torrents":[{"id":2,"isFinished":false},{"id":3,"isFinished":false},{"id":4,"isFinished":false},{"id":9,"isFinished":false},{"id":12,"isFinished":false},{"id":13,"isFinished":false},{"id":14,"isFinished":false},{"id":15,"isFinished":false},{"id":17,"isFinished":false},{"id":19,"isFinished":false},{"id":21,"isFinished":false},{"id":22,"isFinished":true},{"id":23,"isFinished":false},{"id":25,"isFinished":false},{"id":27,"isFinished":false},{"id":28,"isFinished":false},{"id":29,"isFinished":false},{"id":33,"isFinished":false},{"id":34,"isFinished":false},{"id":35,"isFinished":false},{"id":37,"isFinished":false},{"id":39,"isFinished":true},{"id":41,"isFinished":false},{"id":42,"isFinished":false},{"id":43,"isFinished":false},{"id":44,"isFinished":false},{"id":45,"isFinished":false},{"id":46,"isFinished":false},{"id":47,"isFinished":false},{"id":48,"isFinished":false},{"id":49,"isFinished":false},{"id":50,"isFinished":false},{"id":51,"isFinished":false},{"id":52,"isFinished":false},{"id":53,"isFinished":false},{"id":54,"isFinished":false},{"id":55,"isFinished":false},{"id":56,"isFinished":false},{"id":57,"isFinished":false},{"id":58,"isFinished":false},{"id":59,"isFinished":false}]},"result":"success"}
+
+_This doesn't let us be as explicit with our logging, but since we're now leveraging transmission, it's logs are probably a more viable source._
+
+We still need to verify what `torrent-add` looks like both with and without "valid" metadata.
+
+
+
 ### execution behavior
 
 Three important areas:
@@ -99,24 +156,29 @@ This, _much smarter_, approach will allow me to delete duplicates instead of cop
 
 # status
 
-I'm going to tackle several of these items at once via a design change:
+Base setup is complete with flags to control operations as needed.  At this point we just need to cleanup and reimplemented transmission features.
 
-- define non-`main.go` files for modular code
-- create `_test.go` files for testing
-- leverage more cli flags
-	- -o --operation
-	- -c --config (transmission's settings.json)
-	- -w --working-dir (the folder we're copying from/to)
-- figure out how to load torrents through RPC, or add to Transmission entity:
-	- `watch` setting (enabled or disabled)
-	- watch folder (for torrents)
+_We also still need to verify what happens when I send a command with an empty args object._
 
-_I don't yet have a reason to create a `cmd/` folder for this project._
+New transmission method layout:
 
-Needs the ability to capture the user that is executing's home folder.  Preferably that info would be gathered via init() into global vars and not during main() execution.
+- get() []torrent
+- finished() []torrent
+- ids(t ...torrent) []int
+- move(ids ...int) error
+- delete(ids ...int) error
+- load(meta []byte) error
 
-**I can use details from transmission's [rpc-spec](https://trac.transmissionbt.com/browser/trunk/extras/rpc-spec.txt).**
+We need structs to represent the various datatypes, and should use inline anonymous struct definitions for deep-content instead of arbitrarily named structs.
 
-So, CSRF protection uses a `409` response with a valid CSRF and expects the client to deal with the refresh.  _This is very similar to oauth, so it should be easy to implement._
+This new command layout takes advantage of transmissions own tooling better to yield the desired results.
 
-I want to add a new `const` for loading torrents manually via RPC in the event that the watch feature is disabled.  If that works I won't even need to leverage the watch behavior of transmission, which in my opinion is a huge benefit.  _There is a `torrent-start-now` method that can be executed after loading new torrents as well, and I may leverage `time.Sleep()` to delay between loading all new files and starting._  **There does indeed appear to be a `torrent-add` that accepts either the filename path or url, or metainfo (base64 encoded contents of .torrent) which is probably better since then transmission never has to care about the associated file.**
+_We might even consider making an optional delete flag, to run separate from move, or conditionally after move is successful._
+
+**The only major change in usage is the ownership of the folder files are being moved to must be accessible by transmission.**
+
+Also, I've confirmed that I will be attempting to ignore the `watch` folder and setting, because if we can directly load metadata we can safely ignore those features.
+
+_It might also be really cool if I can make `torrent-add` executable, such that mimetype association would automatically load a torrent when "open" is executed, but that's a far-future feature._
+
+If the transmission functionality grows substantially, I may consider moving to a `cmd/` folder-structure, with one or more clients.
