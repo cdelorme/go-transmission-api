@@ -1,34 +1,38 @@
 
 # go transmission helper
 
-This is a cli utility written to support the linux transmission daemon.  It loads the configuration file, grabs the RPC address, and can run requests against it.
+This is a helper library abbreviated as `transmissoner`.  The intended function is to provide a go stack to execute calls against the RPC interface.
+
+A supporting CLI will provide real functionality leveraging this interface.
+
+**This implementation is not feature-complete.**
 
 
-## requests
+## why
 
-Currently the only operation being planned is a way to handle completed torrents.  The definition of "complete" being that the download has finished, and the seeding ratio has been met.
+To scratch my own itch; there are two functions transmission is missing:
 
-When executed it should:
+- dealing with seeded torrents
+- automatically loading downloaded torrents
 
-- request torrents that are labeled as "finished"
-- remove each of them
-- optionally move the files of each into another path
+_I download a lot of files, so the lack of these features was really troublesome,_ and the core of this library is based around solving those problems, with potential room for new features.
 
-For me this is helpful in two ways.  For one my main storage disk is not the same as the download disk, and I do not have infinite storage space on the download disk.  For two, it lets me clearly know when downloads are able to be shifted around.
+**It does have a state-change handler,** but that handler only identifies "download completed" status not "seeding completed" status.  The RPC interface describes the latter as "isFinished", downloaded != "isFinished".  As a result you can't rely on this script trigger to accurately deal with completed torrents.
 
-_This is a feature I expected to exist within the client, much like utorrent used to have._
+Yes, transmission does have a "watch" folder, but there are a few very strange behaviors surrounding it.  First, if you run transmission as a daemon, it won't have permission to deal with your user folders (eg. ~/Downloads), which prevents it from loading and removing loaded torrents.  Second, the watch folder ignores files that are placed via `mv`, it requires them to be `cp`'d instead (on linux).
 
-
-## notes
-
-This software is best paired with [deduplication software](https://github.com/cdelorme/level6), since it will only append a suffix to files when a file already exists, it will not check and compare to prevent duplicate downloads.
+_There are a myriad of other issues I have that aren't part of what this solves, but those two are the largest low-hanging fruit available._
 
 
-## future
+## usage
 
-While I can think of at half a dozen more features I'd like to see, I'd rather write my own client to handle them if I was going to go that far.
+To install this utility:
 
-So this library will likely only ever provide one function.
+	go install github.com/cdelorme/go-transmission/helper/...
+
+_The `...` will expand the `cmd/` folder installing the library and the cli utility._
+
+View the [cli readme](cmd/go-transmission-helper/readme.md) for execution details.
 
 
 # references

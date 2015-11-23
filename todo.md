@@ -6,8 +6,6 @@ This is a plan tracking document for a history of changes.  Summary:
 - changelog
 - current status
 - curl commands against RPC to test behavior
-- testing
-- pending readme updates
 
 
 # changelog
@@ -42,33 +40,34 @@ This becomes more of a problem when downloading compressed files, where after ex
 
 At the same time, we're going from a process that copies files directly, to leveraging the `torrent-set-location` feature, which benefits us in two ways.  First it reduces what our code is responsible for (formerly the data), and at the same time prevents time-gaps between torrent removal and file relocation which may formerly have caused copy or delete errors.
 
+I was looking at torrent structure and ran across [this](https://en.wikipedia.org/wiki/Torrent_file#File_structure).  It appears that a torrent **does** contain the files it intends to download.  There is also a, rather complex, hashing system.  _I still need to verify what transmission does when two downloads have the same "files" locally._  If it renames them, that's fine, but I'll need to deal with that accordingly.  The conflicts include torrent name, files, and of course the hash (sha1).  Two of three would require my system be able to read the torrent file, at which point I may as well be rewriting transmission in go.
+
+**I have decided to abandon deduplication at load.**  It's not that I don't want this functionality, but I could not find any solid source on what transmission does in the event of name conflicts, and more importantly I could not find a way to embed a storage path for old torrents, or to continue tracking removed torrents to prevent duplicate downloads.  Transmission literally forgets what it downloaded if you remove the torrent, which while correct is not the behavior I would want from a home torrent server.
+
+Switched to library file system, due to lack of naming options calling the library `transmissioner` (short for transmission helper?).
+
+Add `Configure()` method, accepts config file path, loads json directly, returns an error.
+
+Created a new readme for external execution.
+
+updated readme to reflect new state and reference new readme & install method.  Document interface of transmission instance.
+
+switch `load` flag to `add` flag, and accept as a boolean but pass as a string.  We check if the string exists in the file system, if not we default to `$HOME/Downloads`.  If it does exist, and is a .torrent file, we add it, if it's a different directory, we scan that instead of `$HOME/Downloads`.  Created a modular addFile sub-method to handle each file in a loop.
+
+verified base64 encoding raw torrent file contents and passing works as expected.  _There may be an edge case, such as a .torrent file already being base64 encoded, but I haven't confirmed behavior yet._
+
+After considering my options, I've decided to abandon any attempt to deduplicate at load.  I am going to pursue a golang client implementation of my own that addresses all these quirks as a longer-term objective.
+
+Add a sleep to the loop so that the first command waits 2 seconds prior to attempting the next command.
+
+Removed cmd layer testing, integration tests would require a lot of work with either too many parts (running instance of transmission, fake file system, valid fake torrent files, etc).  Assuming the rest of the code follows the RPC specification, the only issues with the client are file-system related, and with appropriate debugging that should be an obvious read.  We also won't test the Configure() method, that requires file system intgeration testing as well.  If time allows I may try [this solution](https://talks.golang.org/2012/10things.slide#8).
+
+Verified that on fail, 200 StatusCode is still sent, but result is not "success", added check for valid result and logic to retry when result != "success".
+
 
 # status
 
-Currently my focus is on:
-
-- test sending raw base64 encoded metadata to `torrent-add`
-- switching to `cmd/` for the client and going full-library system
-- adding a `Load()` or `Configure()` command to transmission and directly loading the config file
-	- this would eliminate conflicting concerns with my `go-config` libraries XDG pathing
-- alternative interpretation of `load` operation as a string, which may allow alternative to ~/Downloads
-	- useful override, especially for testing
-- adding tests to identify any design errors and bugs in transmission library
-	- ideally using an httptest server to mock behaviors, both success & fail cases
-
-There is currently no safety around concurrent execution of commands that interact with the file system.  For example, we cannot lock the list
-
-Additionally, there is concerns regarding three forms of duplication:
-
-- torrent names
-- torrent file names
-- torrent sha256 hash
-
-None of these alone resolve the problem we face.  Two differently named torrents may have the same sha256 hash. Similarly two same-named torrents may have a different sha256 hash.
-
-While the most ideal solution would be to parse duplicates by file names in the torrent, I do not believe that sort of information can be acquired from the raw .torrent files.
-
-I need to do some investigating, because that will fundamentally change how I deal with loading torrent files going forward.
+To finish up test coverage, I need to create file system abstraction layers mirroring [this example](https://talks.golang.org/2012/10things.slide#8), but targeting the `ioutil` ReadFile() method.  It is not a priority so long as the current implementation works.
 
 
 ## curl commands
@@ -119,6 +118,8 @@ The other huge benefit is it reduces the operation and response to this:
 
 	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: 286CvsiBzHndot04TB0o62H34hfoSpxU523L8Kes1sfJFNfa" -d "{\"method\":\"torrent-get\",\"arguments\":{\"fields\":[\"id\",\"isFinished\"]}}" http://10.0.0.2:9091/bt/rpc
 
+Which yields the much more succinct result list:
+
 	{"arguments":{"torrents":[{"id":2,"isFinished":false},{"id":3,"isFinished":false},{"id":4,"isFinished":false},{"id":9,"isFinished":false},{"id":12,"isFinished":false},{"id":13,"isFinished":false},{"id":14,"isFinished":false},{"id":15,"isFinished":false},{"id":17,"isFinished":false},{"id":19,"isFinished":false},{"id":21,"isFinished":false},{"id":22,"isFinished":true},{"id":23,"isFinished":false},{"id":25,"isFinished":false},{"id":27,"isFinished":false},{"id":28,"isFinished":false},{"id":29,"isFinished":false},{"id":33,"isFinished":false},{"id":34,"isFinished":false},{"id":35,"isFinished":false},{"id":37,"isFinished":false},{"id":39,"isFinished":true},{"id":41,"isFinished":false},{"id":42,"isFinished":false},{"id":43,"isFinished":false},{"id":44,"isFinished":false},{"id":45,"isFinished":false},{"id":46,"isFinished":false},{"id":47,"isFinished":false},{"id":48,"isFinished":false},{"id":49,"isFinished":false},{"id":50,"isFinished":false},{"id":51,"isFinished":false},{"id":52,"isFinished":false},{"id":53,"isFinished":false},{"id":54,"isFinished":false},{"id":55,"isFinished":false},{"id":56,"isFinished":false},{"id":57,"isFinished":false},{"id":58,"isFinished":false},{"id":59,"isFinished":false}]},"result":"success"}
 
 _Since transmission is now responsible, we don't need names for logging, just the id and state._
@@ -129,35 +130,20 @@ I also was able to verify that I can force start all torrents with this command:
 
 _As part of this test I purposefully included an empty arguments object, since that is what go translates my entity to, which confirms that I don't have to worry about empty arguments causing disruption (yet)._
 
+Finally, I verified the following works passing the base64 encoded file contents of a .torrent file; granted I've omitted the metainfo because it was massive:
 
-**The last thing that needs testing is the process of base64 encoding and supplying metadata via `torrent-add`.**
+	curl -v -X POST -H "Content-Type: application/json; charset=UTF-8" -H "X-Transmission-Session-Id: y3yI1IvpmnJgtzPhAmgivxny8zSenmcQYfX6dfUKOnY1OHcE" -d "{\"method\":\"torrent-add\",\"arguments\":{\"metainfo\": \"\"}}" http://10.0.0.2:9091/bt/rpc
 
+The response looked like this (again sub'd name and hash for fake data):
 
-## testing
+	{"arguments":{"torrent-added":{"hashString":"sha1-of-file","id":82,"name":"filename"}},"result":"success"}
 
-Once the library has been separated from the core code, we can directly manipulate the behavior of our code and run tests against an httptest server instance.
+Adding the same torrent twice returned:
 
-This will let us verify all possible behaviors, and correct any mistakes or bugs in the process, without having to touch a live running transmission instance.
+	{"arguments":{"torrent-duplicate":{"hashString":"sha1-of-file","id":83,"name":"filename"}},"result":"success"}
 
-_The same cannot be said for the client code,_ but integration needs to happen sometime, so we can verify actually loading torrents, and reading contents from the file system.  _Although how the load operation will work in the future is subject to a significant overhaul._
+Adding an invalid torrent metainfo returned:
 
+	{"arguments":{},"result":"invalid or corrupt torrent file"}
 
-
-## readme
-
-Three important areas:
-
-1. when to execute
-2. execution permissions
-3. atomic behavior
-
-Ideally the execution should take place on a schedule instead of after each download completes.  This is because the code does not accept input to determine which torrent to remove, and duplicate execution can lead to undesired behavior (eg. two attempts to copy, a crash, and a corrected file).  It also reduces load on the storage drives.
-
-The executor must:
-
-- have read permissions on transmissions `settings.json` file
-- have write permissions on transmission's downloads directory
-- have write permissions on the folder the files are moving to
-
-Currently my script copies the files one at a time recursively, creating matching folders as needed.  While `os.Rename` is a great atomic (one-uninterrupted-step) alternative, it only works when moving a file across the same disk, and fails to be atomic when going from one disk to another.  _This ruins most scenarios where one may want to move files._
-
+_All three had StatusCode 200, so failure is not reflected by the http status code._

@@ -1,2 +1,3 @@
-go-transmission-helper
+cmd/go-transmission-helper/go-transmission-helper
+coverage.out
 
