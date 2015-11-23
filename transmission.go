@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"path"
 )
 
 const transmissionConfigPath = "/etc/transmission-daemon/settings.json"

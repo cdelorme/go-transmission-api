@@ -154,9 +154,9 @@ func add(t *transmissioner.Transmission, l logger, p string) {
 	for _, f := range files {
 		l.Debug("adding file %s", f.Name())
 		if !f.IsDir() && strings.HasSuffix(f.Name(), ".torrent") {
-			d := path.Join(path.Dir(p), f.Name())
+			d := path.Join(p, f.Name())
 			if err := addFile(t, d); err != nil {
-				l.Error("unable to load %s", d)
+				l.Error("unable to load %s (%v)", d, err)
 			} else {
 				os.Remove(d)
 			}
