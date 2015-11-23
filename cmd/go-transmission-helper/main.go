@@ -169,18 +169,22 @@ func move(t *transmissioner.Transmission, l logger, m string, r bool) {
 		l.Error("file exists at supplied path...")
 		return
 	}
-	l.Debug("moving finished torrent downloads to %s", m)
 
+	l.Debug("searching for finished torrents...")
 	list, err := t.Finished()
 	if err != nil {
 		l.Error("failed to get a list of completed torrents: %s", err.Error())
 		return
 	}
+	l.Debug("list: %+v\n", list)
+
+	l.Debug("moving finished torrent downloads to %s", m)
 	err = t.Move(m, list)
 	if err != nil {
 		l.Error("failed to get a list of completed torrents: %s", err.Error())
 		return
 	}
+	l.Debug("finished moving list...")
 
 	// remove matching list if allowed
 	// @note: alternative implementation is to return a list of torrents

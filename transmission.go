@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,7 +50,11 @@ type command struct {
 func (self *Transmission) send(cmd *command) ([]torrent, error) {
 
 	// compute RPC address
-	route := "http://127.0.0.1:" + strconv.Itoa(self.Port) + "/" + self.Uri + "rpc/"
+	route := "http://127.0.0.1:" + strconv.Itoa(self.Port)
+	if !strings.HasPrefix(self.Uri, "/") {
+		route += "/"
+	}
+	route += self.Uri + "rpc/"
 
 	// error for later
 	var results []torrent
@@ -85,14 +90,14 @@ func (self *Transmission) send(cmd *command) ([]torrent, error) {
 			self.Unlock()
 			continue
 		} else if resp.StatusCode == http.StatusOK {
-			c := &command{}
+			rc := &command{}
 			decoder := json.NewDecoder(resp.Body)
-			decoder.Decode(c)
-			if c.Result != "success" {
+			decoder.Decode(rc)
+			if rc.Result != "success" {
 				time.Sleep(time.Second * 2)
 				continue
 			}
-			results = c.Arguments.Torrents
+			results = rc.Arguments.Torrents
 			return results, nil
 		}
 	}
