@@ -2,6 +2,7 @@ package transmissioner
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -26,6 +27,21 @@ var (
 	metainfo = `some base64 string`
 	movepath = `/new/storage/path/`
 )
+
+var fakeFSData []byte
+var fakeFSError error
+var fsError = errors.New("fake filesystem error")
+
+// override transmission.go's fs with fakeFS
+func init() {
+	fs = &fakeFS{}
+}
+
+type fakeFS struct{}
+
+func (self *fakeFS) ReadFile(path string) ([]byte, error) {
+	return fakeFSData, fakeFSError
+}
 
 func TestPlacebo(t *testing.T) {
 	t.Parallel()
@@ -639,6 +655,48 @@ func TestResumeFail(t *testing.T) {
 	err := tr.Resume()
 	if err == nil {
 		t.Logf("expected error, but got: %v\n", err)
+		t.FailNow()
+	}
+}
+
+func TestConfigureSuccess(t *testing.T) {
+	tr := Transmission{}
+
+	// unset error & set data
+	fakeFSError = nil
+	fakeFSData = []byte(`{"rpc-port": 3000}`)
+
+	// run & verify
+	err := tr.Configure("some-file-path")
+	if err != nil || tr.Port != 3000 {
+		t.FailNow()
+	}
+}
+
+func TestConfigureSuccessEmptyPath(t *testing.T) {
+	tr := Transmission{}
+
+	// unset error & set data
+	fakeFSError = nil
+	fakeFSData = []byte(`{"rpc-port": 3000}`)
+
+	// run & verify
+	err := tr.Configure("")
+	if err != nil || tr.Port != 3000 {
+		t.FailNow()
+	}
+}
+
+func TestConfigureFailReadFile(t *testing.T) {
+	tr := Transmission{}
+
+	// force error
+	fakeFSError = fsError
+	fakeFSData = []byte{}
+
+	// run & verify error
+	err := tr.Configure("")
+	if err == nil {
 		t.FailNow()
 	}
 }

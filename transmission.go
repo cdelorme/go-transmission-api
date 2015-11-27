@@ -6,15 +6,21 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
+	"path"
 	"strconv"
 	"sync"
 	"time"
-	"path"
 )
 
 const transmissionConfigPath = "/etc/transmission-daemon/settings.json"
 
-var errorRetryFailed = errors.New("failed to get a valid response from transmission")
+type filesystem interface {
+	ReadFile(string) ([]byte, error)
+}
+
+type osFS struct{}
+
+func (self *osFS) ReadFile(path string) ([]byte, error) { return ioutil.ReadFile(path) }
 
 type Transmission struct {
 	sync.RWMutex
@@ -43,6 +49,9 @@ type command struct {
 	Result    string    `json:"result,omitempty"`
 	Arguments arguments `json:"arguments,omitempty"`
 }
+
+var errorRetryFailed = errors.New("failed to get a valid response from transmission")
+var fs filesystem = &osFS{}
 
 // consolidated method for sending http requests to transmission
 // computes the endpoint, loops with 3 retries and grabbing tokens
@@ -114,7 +123,7 @@ func (self *Transmission) Configure(path string) error {
 	}
 
 	// read file
-	d, e := ioutil.ReadFile(path)
+	d, e := fs.ReadFile(path)
 	if e != nil {
 		return e
 	}
