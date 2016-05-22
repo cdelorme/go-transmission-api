@@ -1,38 +1,36 @@
 
-# go transmission helper
+# [go transmission api](https://github.com/cdelorme/go-transmission-api)
 
-This is a helper library abbreviated as `transmissoner`.  The intended function is to provide a go stack to execute calls against the RPC interface.
+This is an api wrapper written in go for the express purpose of making calls to the RPC API exposed by the transmission daemon.
 
-A supporting CLI will provide real functionality leveraging this interface.
+A [cli implementation](cmd/go-transmission-helper) is being created to leverage the functionality as a `helper`.
 
-**This implementation is not feature-complete.**
+**This implementation is not yet feature-complete.**
 
 
 ## why
 
-To scratch my own itch; there are two functions transmission is missing:
+To provide a way to talk to transmission from my preferred language.
 
-- dealing with seeded torrents
-- automatically loading downloaded torrents
-
-_I download a lot of files, so the lack of these features was really troublesome,_ and the core of this library is based around solving those problems, with potential room for new features.
-
-**It does have a state-change handler,** but that handler only identifies "download completed" status not "seeding completed" status.  The RPC interface describes the latter as "isFinished", downloaded != "isFinished".  As a result you can't rely on this script trigger to accurately deal with completed torrents.
-
-Yes, transmission does have a "watch" folder, but there are a few very strange behaviors surrounding it.  First, if you run transmission as a daemon, it won't have permission to deal with your user folders (eg. ~/Downloads), which prevents it from loading and removing loaded torrents.  Second, the watch folder ignores files that are placed via `mv`, it requires them to be `cp`'d instead (on linux).
-
-_There are a myriad of other issues I have that aren't part of what this solves, but those two are the largest low-hanging fruit available._
+Also to create a CLI utility that can help shore up some of the functionality I wish existed by default or worked better within transmission.
 
 
 ## usage
 
-To install this utility:
+To get the library:
 
-	go install github.com/cdelorme/go-transmission/helper/...
+	go get github.com/cdelorme/go-transmission-api
 
-_The `...` will expand the `cmd/` folder installing the library and the cli utility._
+Import the library:
 
-View the [cli readme](cmd/go-transmission-helper/readme.md) for execution details.
+	import "github.com/cdelorme/go-transmission-api"
+
+Create an instance and load the configuration:
+
+	trans := transmission.Transmission{}
+	trans.Config("/optional/custom/path/to/settings.json")
+
+_See the code for available function signatures and implementation._
 
 
 # references
