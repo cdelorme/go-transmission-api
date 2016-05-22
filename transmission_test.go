@@ -1,4 +1,4 @@
-package transmissioner
+package transmission
 
 import (
 	"encoding/json"
