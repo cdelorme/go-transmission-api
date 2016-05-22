@@ -11,6 +11,10 @@ import (
 )
 
 var (
+	fakeFSData  []byte
+	fakeFSError error
+	fsError     = errors.New("fake filesystem error")
+
 	getTorrentsSuccess    = []byte(`{"result":"success","arguments": {"torrents": [{"id": 1,"isFinished": false},{"id": 2,"isFinished": false},{"id": 3,"isFinished": false},{"id": 4,"isFinished": false},{"id": 5,"isFinished": false},{"id": 6,"isFinished": true},{"id": 7,"isFinished": true},{"id": 8,"isFinished": true},{"id": 9,"isFinished": true},{"id": 10,"isFinished": true}]}}`)
 	moveTorrentsSuccess   = []byte(`{"result":"success"}`)
 	removeTorrentsSuccess = []byte(`{"result":"success"}`)
@@ -28,19 +32,8 @@ var (
 	movepath = `/new/storage/path/`
 )
 
-var fakeFSData []byte
-var fakeFSError error
-var fsError = errors.New("fake filesystem error")
-
-// override transmission.go's fs with fakeFS
 func init() {
-	fs = &fakeFS{}
-}
-
-type fakeFS struct{}
-
-func (self *fakeFS) ReadFile(path string) ([]byte, error) {
-	return fakeFSData, fakeFSError
+	readFile = func(path string) ([]byte, error) { return fakeFSData, fakeFSError }
 }
 
 func TestPlacebo(t *testing.T) {

@@ -14,13 +14,11 @@ import (
 
 const transmissionConfigPath = "/etc/transmission-daemon/settings.json"
 
+var readFile = ioutil.ReadFile
+
 type filesystem interface {
 	ReadFile(string) ([]byte, error)
 }
-
-type osFS struct{}
-
-func (self *osFS) ReadFile(path string) ([]byte, error) { return ioutil.ReadFile(path) }
 
 type Transmission struct {
 	sync.RWMutex
@@ -51,7 +49,6 @@ type command struct {
 }
 
 var errorRetryFailed = errors.New("failed to get a valid response from transmission")
-var fs filesystem = &osFS{}
 
 // consolidated method for sending http requests to transmission
 // computes the endpoint, loops with 3 retries and grabbing tokens
@@ -59,7 +56,9 @@ var fs filesystem = &osFS{}
 func (self *Transmission) send(cmd *command) ([]torrent, error) {
 
 	// compute RPC address
+	self.RLock()
 	route := "http://127.0.0.1:" + path.Join(strconv.Itoa(self.Port), self.Uri, "rpc/")
+	self.RUnlock()
 
 	// error for later
 	var results []torrent
@@ -123,7 +122,7 @@ func (self *Transmission) Configure(path string) error {
 	}
 
 	// read file
-	d, e := fs.ReadFile(path)
+	d, e := readFile(path)
 	if e != nil {
 		return e
 	}
