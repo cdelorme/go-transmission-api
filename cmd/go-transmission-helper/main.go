@@ -12,7 +12,7 @@ import (
 	"github.com/cdelorme/go-maps"
 	"github.com/cdelorme/go-option"
 
-	"github.com/cdelorme/go-transmission-helper"
+	"github.com/cdelorme/go-transmission-api"
 )
 
 type logger interface {
@@ -24,29 +24,21 @@ func main() {
 
 	// load cli options
 	cli := &option.App{Description: "A utility to help wield the power of transmission through cli & automation"}
-	cli.Flag("verbose", "debug mode", "-v", "--verbose")
-	cli.Flag("silent", "silent mode", "-s", "--silent")
 	cli.Flag("configFile", "transmission config file path", "-c", "--config")
 	cli.Flag("add", "add torrent(s) from supplied path or home folder", "-a", "--add")
 	cli.Flag("move", "move torrents in finished state to this folder", "-m", "--move")
 	cli.Flag("remove", "remove torrents in finished state from transmission", "-r", "--remove")
-	cli.Example("-v -a")
+	cli.Example("-a")
 	cli.Example("-a /tmp/special-torrent-stash/")
-	cli.Example("-s -r -m /backup/drive/")
+	cli.Example("-r -m /backup/drive/")
 	flags := cli.Parse()
 
 	// prepare & configure logger
-	l := &log.Logger{Severity: log.Error}
-	if b, _ := maps.Bool(flags, false, "silent"); b {
-		l.Silent = b
-	}
-	if b, _ := maps.Bool(flags, false, "verbose"); b {
-		l.Severity = log.Debug
-	}
+	l := &log.Logger{}
 
 	// prepare transmission instance, and apply settings
 	f, _ := maps.String(flags, "", "configFile")
-	t := &transmissioner.Transmission{}
+	t := &transmission.Transmission{}
 	if err := t.Configure(f); err != nil {
 		l.Error("Failed to read transmission configuration (%s): %s", f, err.Error())
 		return
@@ -102,7 +94,7 @@ func load64(f string) (string, error) {
 	return base64.StdEncoding.EncodeToString(d), nil
 }
 
-func addFile(t *transmissioner.Transmission, f string) error {
+func addFile(t *transmission.Transmission, f string) error {
 
 	// attempt to read file contents
 	meta, err := load64(f)
@@ -118,7 +110,7 @@ func addFile(t *transmissioner.Transmission, f string) error {
 	return nil
 }
 
-func add(t *transmissioner.Transmission, l logger, p string) {
+func add(t *transmission.Transmission, l logger, p string) {
 	d, err := os.Stat(p)
 	if err != nil {
 		l.Debug("no or unreadable add-file supplied, switching to downloads")
@@ -164,7 +156,7 @@ func add(t *transmissioner.Transmission, l logger, p string) {
 	}
 }
 
-func move(t *transmissioner.Transmission, l logger, m string, r bool) {
+func move(t *transmission.Transmission, l logger, m string, r bool) {
 	if fi, err := os.Stat(m); err == nil && !fi.IsDir() {
 		l.Error("file exists at supplied path...")
 		return
