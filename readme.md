@@ -28,7 +28,7 @@ Import the library:
 Create an instance and load the configuration:
 
 	trans := transmission.Transmission{}
-	trans.Config("/optional/custom/path/to/settings.json")
+	trans.Configure("/optional/custom/path/to/settings.json")
 
 _See the code for available function signatures and implementation._
 
