@@ -56,3 +56,16 @@ The other will relocate files safely, even to another disk, using transmissions 
 	go-transmission-helper -d -m /new/path
 
 _Since this modifies the hard drive it's best to run it less often, such as nightly._
+
+
+## future
+
+Some of the things I'd like to do in the future:
+
+- fully test the main package
+- enhance existing behaviors:
+	- return and print errors when a command fails, including a valid exit code
+	- run a second query filtering to match moved files before running the delete operation
+- eliminate redundancy within the `add()` function (recursion might be cleaner?)
+- consider movind base64 logic into the transmission api code and supporting all methods of adding torrents
+- switch to [`go-multiconf`](https://github.com/cdelorme/go-multiconf)
