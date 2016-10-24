@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/cdelorme/go-log"
-	"github.com/cdelorme/go-maps"
-	"github.com/cdelorme/go-option"
-
 	"github.com/cdelorme/go-transmission-api"
+	"github.com/cdelorme/gonf"
 )
 
 type logger interface {
@@ -20,42 +18,47 @@ type logger interface {
 	Error(string, ...interface{})
 }
 
+type config struct {
+	Add    string `json:"add,omitempty"`
+	Remove bool   `json:"remove,omitempty"`
+	Move   string `json:"move,omitempty"`
+	File   string `json:"configFile,omitempty"`
+}
+
 func main() {
 
 	// load cli options
-	cli := &option.App{Description: "A utility to help wield the power of transmission through cli & automation"}
-	cli.Flag("configFile", "transmission config file path", "-c", "--config")
-	cli.Flag("add", "add torrent(s) from supplied path or home folder", "-a", "--add")
-	cli.Flag("move", "move torrents in finished state to this folder", "-m", "--move")
-	cli.Flag("remove", "remove torrents in finished state from transmission", "-r", "--remove")
-	cli.Example("-a")
-	cli.Example("-a /tmp/special-torrent-stash/")
-	cli.Example("-r -m /backup/drive/")
-	flags := cli.Parse()
+	c := new(config)
+	g := gonf.Gonf{Description: "A utility to help wield the power of transmission through cli & automation", Configuration: c}
+	g.Add("configFile", "transmission config file path", "", "-c", "--config")
+	g.Add("add", "add torrent(s) from supplied path or home folder", "", "-a", "--add")
+	g.Add("move", "move torrents in finished state to this folder", "", "-m", "--move")
+	g.Add("remove", "remove torrents in finished state from transmission", "", "-r", "--remove")
+	g.Example("-a")
+	g.Example("-a /tmp/special-torrent-stash/")
+	g.Example("-r -m /backup/drive/")
+	g.Load()
 
 	// prepare & configure logger
 	l := &log.Logger{}
 
 	// prepare transmission instance, and apply settings
-	f, _ := maps.String(flags, "", "configFile")
 	t := &transmission.Transmission{}
-	if err := t.Configure(f); err != nil {
-		l.Error("Failed to read transmission configuration (%s): %s", f, err.Error())
+	if err := t.Configure(c.File); err != nil {
+		l.Error("Failed to read transmission configuration: %s", err.Error())
 		return
 	}
 	l.Debug("transmission configuration: %+v", t)
 
 	// conditionally add from downloads, then force-resume of paused/new downloads (eg. Resume Now)
-	if b, _ := maps.Bool(flags, false, "add"); b {
-		s, _ := maps.String(flags, "", "add")
-		add(t, l, s)
+	if c.Add != "" {
+		add(t, l, c.Add)
 		t.Resume()
 	}
 
 	// conditionally move & remove
-	if s, _ := maps.String(flags, "", "move"); len(s) > 0 {
-		r, _ := maps.Bool(flags, false, "remove")
-		move(t, l, s, r)
+	if c.Move != "" {
+		move(t, l, c.Move, c.Remove)
 	}
 }
 
