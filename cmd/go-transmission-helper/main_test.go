@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func init() {
+	exit = func(_ int) {}
+}
+
 func TestPlacebo(t *testing.T) {
 	t.Parallel()
 	if !true {
