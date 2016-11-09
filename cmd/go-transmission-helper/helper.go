@@ -14,6 +14,10 @@ import (
 )
 
 var errBadMovePath = errors.New("file exists at supplied path...")
+var readfile = ioutil.ReadFile
+var stat = os.Stat
+var remove = os.Remove
+var readdir = ioutil.ReadDir
 
 type helper struct {
 	transmission.Transmission
@@ -24,33 +28,8 @@ type helper struct {
 	File   string `json:"configFile,omitempty"`
 }
 
-func (self *helper) Init() {
-	g := gonf.Gonf{Description: "A utility to help wield the power of transmission through cli & automation", Configuration: self}
-	g.Add("configFile", "transmission config file path", "TRANSMISSION_CONFIG", "-c", "--config")
-	g.Add("add", "add torrent(s) from the supplied path", "TRANSMISSION_ADD", "-a", "--add")
-	g.Add("move", "move torrents in finished state to this folder", "TRANSMISSION_MOVE", "-m", "--move")
-	g.Add("remove", "remove torrents in finished state from transmission", "TRANSMISSION_REMOVE", "-r", "--remove")
-	g.Example("-a")
-	g.Example("-a /tmp/special-torrent-stash/")
-	g.Example("-r -m /backup/drive/")
-	g.Load()
-}
-
-func (self *helper) Run() int {
-	if err := self.Transmission.Configure(self.File); err != nil {
-		self.Error("Failed to read transmission configuration: %s", err.Error())
-		return 1
-	}
-	self.Debug("configuration: %+v", self)
-
-	if self.add() != nil || self.move() != nil {
-		return 1
-	}
-	return 0
-}
-
 func (self *helper) load64(f string) (string, error) {
-	d, err := ioutil.ReadFile(f)
+	d, err := readfile(f)
 	if err != nil {
 		return "", err
 	}
@@ -66,6 +45,7 @@ func (self *helper) addFile(f string) error {
 	}
 
 	if err := self.Transmission.Add(meta); err != nil {
+		self.Error("transmission failed to add metadata: %s", err)
 		return err
 	}
 
@@ -79,10 +59,11 @@ func (self *helper) add() error {
 
 	var d os.FileInfo
 	var err error
-	d, err = os.Stat(self.Add)
+	d, err = stat(self.Add)
 	if err != nil {
 		self.Warning("unable to read supplied path (%s): %s", self.Add, err)
-		d, err = os.Stat(path.Join(os.Getenv("HOME"), "Downloads"))
+		self.Add = path.Join(os.Getenv("HOME"), "Downloads")
+		d, err = stat(self.Add)
 		if err != nil {
 			self.Error("unable to read downloads folder (%s)...", err)
 			return err
@@ -94,9 +75,10 @@ func (self *helper) add() error {
 			self.Error("failed to add %s (%s)", self.Add, err)
 			return err
 		}
-		os.Remove(self.Add)
+		remove(self.Add)
 	} else if d.Mode().IsRegular() {
-		files, err := ioutil.ReadDir(self.Add)
+
+		files, err := readdir(self.Add)
 		if err != nil {
 			self.Error("failed to read files in %s...", self.Add)
 			return err
@@ -108,7 +90,7 @@ func (self *helper) add() error {
 				if err = self.addFile(a); err != nil {
 					self.Error("unable to load %s (%s)", a, err)
 				} else {
-					os.Remove(a)
+					remove(a)
 				}
 			}
 		}
@@ -118,11 +100,11 @@ func (self *helper) add() error {
 }
 
 func (self *helper) move() error {
-	if self.Move != "" {
+	if self.Move == "" {
 		return nil
 	}
 
-	if fi, err := os.Stat(self.Move); err == nil && !fi.IsDir() {
+	if fi, err := stat(self.Move); err == nil && !fi.IsDir() {
 		self.Error("%s", errBadMovePath)
 		return errBadMovePath
 	}
@@ -141,7 +123,7 @@ func (self *helper) move() error {
 		self.Error("failed to move completed torrents: %s", err)
 		return err
 	}
-	l.Debug("finished moving list...")
+	self.Debug("finished moving list...")
 
 	if self.Remove {
 		self.Debug("removing complete torrents from transmission...")
@@ -153,4 +135,32 @@ func (self *helper) move() error {
 	}
 
 	return nil
+}
+
+func (self *helper) Init() {
+	g := gonf.Gonf{Description: "A utility to help wield the power of transmission through cli & automation", Configuration: self}
+	g.Add("configFile", "transmission config file path", "TRANSMISSION_CONFIG", "-c:", "--config")
+	g.Add("add", "add torrent(s) from the supplied path", "TRANSMISSION_ADD", "-a:", "--add")
+	g.Add("move", "move torrents in finished state to this folder", "TRANSMISSION_MOVE", "-m:", "--move")
+	g.Add("remove", "remove torrents in finished state from transmission", "TRANSMISSION_REMOVE", "-r", "--remove")
+	g.Example("-a ~/Downloads")
+	g.Example("-r -m /backup/drive/")
+	g.Load()
+}
+
+func (self *helper) Run() int {
+	if err := self.Transmission.Configure(self.File); err != nil {
+		self.Error("Failed to read transmission configuration: %s", err.Error())
+		return 1
+	}
+	self.Debug("configuration: %+v", self)
+
+	var code int
+	if self.add() != nil {
+		code = 1
+	}
+	if self.move() != nil {
+		code = 1
+	}
+	return code
 }
