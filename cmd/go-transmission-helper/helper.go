@@ -37,7 +37,7 @@ func (self *helper) load64(f string) (string, error) {
 }
 
 func (self *helper) addFile(f string) error {
-	self.Debug("adding torrent file %s", self.Add)
+	self.Debug("adding torrent file %s", f)
 
 	meta, err := self.load64(f)
 	if err != nil {
@@ -70,14 +70,13 @@ func (self *helper) add() error {
 		}
 	}
 
-	if !d.IsDir() {
+	if !d.IsDir() && d.Mode().IsRegular() {
 		if err = self.addFile(self.Add); err != nil {
 			self.Error("failed to add %s (%s)", self.Add, err)
 			return err
 		}
 		remove(self.Add)
-	} else if d.Mode().IsRegular() {
-
+	} else {
 		files, err := readdir(self.Add)
 		if err != nil {
 			self.Error("failed to read files in %s...", self.Add)
@@ -153,7 +152,6 @@ func (self *helper) Run() int {
 		self.Error("Failed to read transmission configuration: %s", err.Error())
 		return 1
 	}
-	self.Debug("configuration: %+v", self)
 
 	var code int
 	if self.add() != nil {
